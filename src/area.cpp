@@ -18,7 +18,7 @@ public:
         eRec.y = point.p;
         eRec.n = point.n;
         eRec.wi = (eRec.y - eRec.x).normalized();
-        eRec.pdf = pdf(mesh, eRec);//pdf从光源面积到立体角转换
+        eRec.pdf = pdf(mesh, eRec);//光源面积pdf
 
         if(eRec.pdf > 0.0f && !std::isnan(eRec.pdf) && !std::isinf(eRec.pdf)) {
             return eval(eRec) / eRec.pdf;//这里没有cos项，缺的都吸收在G项中

@@ -21,13 +21,6 @@ public:
       return result;
     }
 
-    //交点是光源
-    if (its.mesh->isEmitter())
-    {
-      EmitterQueryRecord eRec(ray.o, its.p, its.shFrame.n);
-      result += its.mesh->getEmitter()->eval(eRec);
-    }
-
     //统计光源
     std::vector<Mesh *> Meshes = scene->getMeshes();
     std::vector<Mesh *> light_source;
@@ -47,11 +40,21 @@ public:
     Intersection x(its);
     Ray3f r(ray);
     Color3f wait_albedo(1.f);
-    uint32_t least_recursion = 5; //如果不设置最少递归次数，玻璃球的光出不去
+    uint32_t least_recursion = 0; //如果不设置最少递归次数，玻璃球的光出不去
+    uint32_t MAX_DEPTH = 5;
     float maxComp = 1.f;
 
-    while (least_recursion > 0 || (sampler->next1D() < fmin(maxComp * total_eta * total_eta, 0.99)))
+    while (least_recursion < MAX_DEPTH || (sampler->next1D() < fmin(maxComp * total_eta * total_eta, 0.99)))
     {
+      Color3f dir_light(0.f);
+      Color3f indir_light(0.f);
+      //Le
+      if (x.mesh->isEmitter())
+      {
+        EmitterQueryRecord eRec(r.o, x.p, x.shFrame.n);
+        indir_light += x.mesh->getEmitter()->eval(eRec) * wait_albedo;
+      }
+
       //------------------------直接光 direct light---------------------------
       //均匀随机采样光源
       uint32_t index = sampler->next1D() * ls_nums;
@@ -66,6 +69,8 @@ public:
 
       if (scene->rayIntersect(rayo, y) && y.mesh == area_light)
       {
+        if (eRec.n.dot(-eRec.wi) > 0.f)
+        {
           BSDFQueryRecord bRec(x.shFrame.toLocal(-r.d), x.shFrame.toLocal(eRec.wi), ESolidAngle);
 
           eRec.pdf /= ls_nums; //考虑光源个数
@@ -77,54 +82,52 @@ public:
           float p_b = x.mesh->getBSDF()->pdf(bRec);
           float w_e = p_e / (p_e + p_b + Epsilon);
 
-          Color3f dir = fr * G * Le * w_e;
-
-          result += wait_albedo * dir;
+          Color3f dir = fr * G * Le;
+          dir_light += wait_albedo * dir * w_e;
+        }
       }
 
-      //------------------------间接光 indirect light---------------------------
+      //------------------------间接光通量---------------------------
 
       BSDFQueryRecord bRec(x.shFrame.toLocal(-r.d.normalized()));
       Color3f albedo = x.mesh->getBSDF()->sample(bRec, sampler->next2D());
       Ray3f ro(x.p, x.shFrame.toWorld(bRec.wo)); //反射光线
       Intersection next_x;
-
+      float w_b  =  1.f;
       if (!scene->rayIntersect(ro, next_x))
       {
         break;
       }
       else if (next_x.mesh->isEmitter())
-      { //打到光源
-        EmitterQueryRecord eRec(x.p, next_x.p, next_x.shFrame.n);
-        //避免相切
-        if (eRec.n.dot(-eRec.wi) > 0.f)
-        {
-          eRec.pdf = next_x.mesh->getEmitter()->pdf(next_x.mesh, eRec) * ls_nums * 2.5; //2.5是随便猜的，大于2
-
-          Color3f radiance = next_x.mesh->getEmitter()->eval(eRec);
-
-          //mirror等离散材质pdf为0，所以特殊处理
-          float p_b = x.mesh->getBSDF()->pdf(bRec);
-          float p_e = eRec.pdf / eRec.n.dot(-eRec.wi) * (eRec.y - eRec.x).squaredNorm();
-          float w_b = x.mesh->getBSDF()->isDiffuse() ? p_b / (p_b + p_e + Epsilon) : 1.f;
-
-          result += wait_albedo * w_b * albedo * radiance;
-        }
+      {
+        EmitterQueryRecord eRec(ro.o, next_x.p, next_x.shFrame.n);
+        eRec.pdf = next_x.mesh->getEmitter()->pdf(next_x.mesh, eRec) * ls_nums * 2.5; //2.5是随便猜的，大于2
+        //mirror等离散材质pdf为0，所以特殊处理
+        float p_b = x.mesh->getBSDF()->pdf(bRec);
+        float p_e = eRec.pdf / eRec.n.dot(-eRec.wi) * (eRec.y - eRec.x).squaredNorm();
+        w_b = x.mesh->getBSDF()->isDiffuse() ? p_b / (p_b + p_e + Epsilon) : 1.f;
       }
+
       x = next_x;
       r.o = ro.o;
       r.d = ro.d;
-      if (least_recursion <= 0)
+
+      float q = total_eta * total_eta * maxComp;
+      wait_albedo *= albedo * w_b;
+      if (least_recursion >= MAX_DEPTH)
       {
         total_eta *= bRec.eta;
         maxComp = wait_albedo.maxCoeff(); //太小了就没必要继续弹射了
       }
       else
       {
-        least_recursion--;
+        least_recursion++;
       }
 
-      wait_albedo *= albedo;
+
+      result += (dir_light + indir_light) / q;
+
+      
     }
 
     return result;
