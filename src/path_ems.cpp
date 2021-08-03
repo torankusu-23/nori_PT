@@ -47,14 +47,12 @@ public:
     while (least_recursion < MAX_DEPTH || (sampler->next1D() < fmin(maxComp * total_eta * total_eta, 0.99)))
     {
       Color3f dir_light(0.f);
-      Color3f indir_light(0.f);
       //Le
-
       if (x.mesh->isEmitter())
       {
         EmitterQueryRecord eRec(r.o, x.p, x.shFrame.n);
-        if(least_recursion == 0)
-          indir_light += x.mesh->getEmitter()->eval(eRec) * wait_albedo;
+        if (least_recursion == 0)
+          result += x.mesh->getEmitter()->eval(eRec) * wait_albedo;
       }
 
       //------------------------直接光 direct light---------------------------
@@ -73,15 +71,15 @@ public:
       {
         if (eRec.n.dot(-eRec.wi) > 0.f)
         {
-            BSDFQueryRecord bRec(x.shFrame.toLocal(-r.d), x.shFrame.toLocal(eRec.wi), ESolidAngle);
+          BSDFQueryRecord bRec(x.shFrame.toLocal(-r.d), x.shFrame.toLocal(eRec.wi), ESolidAngle);
 
-            eRec.pdf /= ls_nums; //考虑光源个数
+          eRec.pdf /= ls_nums; //考虑光源个数
 
-            Color3f fr = x.mesh->getBSDF()->eval(bRec);
-            float G = abs(x.shFrame.n.dot(eRec.wi)) * abs(eRec.n.dot(-eRec.wi)) / (eRec.y - eRec.x).squaredNorm();
+          Color3f fr = x.mesh->getBSDF()->eval(bRec);
+          float G = abs(x.shFrame.n.dot(eRec.wi)) * abs(eRec.n.dot(-eRec.wi)) / (eRec.y - eRec.x).squaredNorm();
 
-            Color3f dir = fr * G * Le;
-            dir_light += wait_albedo * dir;
+          Color3f dir = fr * G * Le;
+          dir_light += wait_albedo * dir;
         }
       }
 
@@ -100,12 +98,6 @@ public:
       x = next_x;
       r.o = ro.o;
       r.d = ro.d;
-      
-      float q = total_eta * total_eta * maxComp;
-      wait_albedo *= albedo;
-
-      result += (dir_light + indir_light) / q;
-
 
       if (least_recursion >= MAX_DEPTH)
       {
@@ -116,6 +108,11 @@ public:
       {
         least_recursion++;
       }
+
+      float q = total_eta * total_eta * maxComp;
+      wait_albedo *= albedo / q;
+
+      result += dir_light / q;
     }
 
     return result;

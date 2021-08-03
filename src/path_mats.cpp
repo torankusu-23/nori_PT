@@ -31,6 +31,7 @@ public:
     //完全随机采样BSDF，迭代方法
     while (least_recursion > 0 || (sampler->next1D() < fmin(maxComp * total_eta * total_eta, 0.99)))
     {
+      Color3f indir(0.f);
       //Le自发光项
       if(x.mesh->isEmitter()) {
         EmitterQueryRecord eRec(r.o, x.p, x.shFrame.n);
@@ -60,10 +61,10 @@ public:
         total_eta *= bRec.eta;
       } else {
         least_recursion--;
-
       }
       float q = maxComp * total_eta * total_eta;
       wait_albedo *= albedo / q;
+
     }
     return result;
   }

@@ -47,12 +47,11 @@ public:
     while (least_recursion < MAX_DEPTH || (sampler->next1D() < fmin(maxComp * total_eta * total_eta, 0.99)))
     {
       Color3f dir_light(0.f);
-      Color3f indir_light(0.f);
       //Le
       if (x.mesh->isEmitter())
       {
         EmitterQueryRecord eRec(r.o, x.p, x.shFrame.n);
-        indir_light += x.mesh->getEmitter()->eval(eRec) * wait_albedo;
+        result += x.mesh->getEmitter()->eval(eRec) * wait_albedo;
       }
 
       //------------------------直接光 direct light---------------------------
@@ -112,8 +111,7 @@ public:
       r.o = ro.o;
       r.d = ro.d;
 
-      float q = total_eta * total_eta * maxComp;
-      wait_albedo *= albedo * w_b;
+      
       if (least_recursion >= MAX_DEPTH)
       {
         total_eta *= bRec.eta;
@@ -124,10 +122,10 @@ public:
         least_recursion++;
       }
 
+      float q = total_eta * total_eta * maxComp;
+      wait_albedo *= albedo * w_b / q;
 
-      result += (dir_light + indir_light) / q;
-
-      
+      result += dir_light / q;
     }
 
     return result;

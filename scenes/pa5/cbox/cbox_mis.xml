@@ -15,7 +15,7 @@
 	</camera>
 
 	<sampler type="independent">
-		<integer name="sampleCount" value="256"/>
+		<integer name="sampleCount" value="64"/>
 	</sampler>
 
 	<mesh type="obj">
