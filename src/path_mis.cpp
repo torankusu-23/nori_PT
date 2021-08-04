@@ -24,13 +24,11 @@ public:
     //统计光源
     std::vector<Mesh *> Meshes = scene->getMeshes();
     std::vector<Mesh *> light_source;
-    float totalArea = 0.f;
     for (auto x : Meshes)
     {
       if (x->isEmitter())
       {
         light_source.emplace_back(x);
-        totalArea += x->getpdf().getSum();
       }
     }
     uint32_t ls_nums = light_source.size();
@@ -43,6 +41,7 @@ public:
     uint32_t least_recursion = 0; //如果不设置最少递归次数，玻璃球的光出不去
     uint32_t MAX_DEPTH = 5;
     float maxComp = 1.f;
+    float w_b = 1.f;
 
     while (least_recursion < MAX_DEPTH || (sampler->next1D() < fmin(maxComp * total_eta * total_eta, 0.99)))
     {
@@ -51,17 +50,16 @@ public:
       if (x.mesh->isEmitter())
       {
         EmitterQueryRecord eRec(r.o, x.p, x.shFrame.n);
-        result += x.mesh->getEmitter()->eval(eRec) * wait_albedo;
+        result += x.mesh->getEmitter()->eval(eRec) * wait_albedo * w_b;
       }
 
       //------------------------直接光 direct light---------------------------
       //均匀随机采样光源
       uint32_t index = sampler->next1D() * ls_nums;
       Mesh *area_light = light_source[index];
-
       //光源离散采样三角形
       EmitterQueryRecord eRec(x.p);
-      Color3f Le = area_light->getEmitter()->sample(area_light, eRec, sampler) * ls_nums; //radiance/pdf，pdf要考虑光源个数
+      Color3f tmp = area_light->getEmitter()->sample(area_light, eRec, sampler) * ls_nums; //radiance/pdf，pdf要考虑光源个数
 
       Intersection y;
       Ray3f rayo(x.p, eRec.wi);
@@ -72,16 +70,15 @@ public:
         {
           BSDFQueryRecord bRec(x.shFrame.toLocal(-r.d), x.shFrame.toLocal(eRec.wi), ESolidAngle);
 
-          eRec.pdf /= ls_nums; //考虑光源个数
+          float p_e = eRec.pdf * (eRec.y - eRec.x).squaredNorm() / (ls_nums * abs(eRec.n.dot(-eRec.wi))); //考虑光源个数，变换measure
 
           Color3f fr = x.mesh->getBSDF()->eval(bRec);
-          float G = abs(x.shFrame.n.dot(eRec.wi)) * abs(eRec.n.dot(-eRec.wi)) / (eRec.y - eRec.x).squaredNorm();
-
-          float p_e = eRec.pdf / abs(eRec.n.dot(-eRec.wi)) * (eRec.y - eRec.x).squaredNorm(); //变换measure  / abs(eRec.n.dot(-eRec.wi))
+          float cosTheta = abs(x.shFrame.n.dot(eRec.wi));
+          Color3f Le = y.mesh->getEmitter()->eval(eRec);
           float p_b = x.mesh->getBSDF()->pdf(bRec);
           float w_e = p_e / (p_e + p_b + Epsilon);
 
-          Color3f dir = fr * G * Le;
+          Color3f dir = fr * cosTheta * Le / p_e;
           dir_light += wait_albedo * dir * w_e;
         }
       }
@@ -92,7 +89,7 @@ public:
       Color3f albedo = x.mesh->getBSDF()->sample(bRec, sampler->next2D());
       Ray3f ro(x.p, x.shFrame.toWorld(bRec.wo)); //反射光线
       Intersection next_x;
-      float w_b  =  1.f;
+
       if (!scene->rayIntersect(ro, next_x))
       {
         break;
@@ -100,18 +97,23 @@ public:
       else if (next_x.mesh->isEmitter())
       {
         EmitterQueryRecord eRec(ro.o, next_x.p, next_x.shFrame.n);
-        eRec.pdf = next_x.mesh->getEmitter()->pdf(next_x.mesh, eRec) * ls_nums * 2.5; //2.5是随便猜的，大于2
-        //mirror等离散材质pdf为0，所以特殊处理
-        float p_b = x.mesh->getBSDF()->pdf(bRec);
-        float p_e = eRec.pdf / eRec.n.dot(-eRec.wi) * (eRec.y - eRec.x).squaredNorm();
-        w_b = x.mesh->getBSDF()->isDiffuse() ? p_b / (p_b + p_e + Epsilon) : 1.f;
+        if (eRec.n.dot(-eRec.wi) > 0.f)
+        {
+          float p_e = next_x.mesh->getEmitter()->pdf(next_x.mesh, eRec) * (eRec.y - eRec.x).squaredNorm() / (ls_nums * eRec.n.dot(-eRec.wi)); //dd
+          //mirror等离散材质pdf为0，所以特殊处理
+          float p_b = x.mesh->getBSDF()->pdf(bRec);
+          w_b = x.mesh->getBSDF()->isDiffuse() ? p_b / (p_b + p_e + Epsilon) : 1.f;
+        }
+      }
+      else
+      {
+        w_b = 1.f;
       }
 
       x = next_x;
       r.o = ro.o;
       r.d = ro.d;
 
-      
       if (least_recursion >= MAX_DEPTH)
       {
         total_eta *= bRec.eta;
@@ -123,8 +125,10 @@ public:
       }
 
       float q = total_eta * total_eta * maxComp;
-      wait_albedo *= albedo * w_b / q;
+      if (sampler->next1D() > q)
+        break;
 
+      wait_albedo *= albedo / q;
       result += dir_light / q;
     }
 

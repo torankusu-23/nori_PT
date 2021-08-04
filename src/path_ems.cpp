@@ -43,6 +43,7 @@ public:
     uint32_t least_recursion = 0; //如果不设置最少递归次数，玻璃球的光出不去
     uint32_t MAX_DEPTH = 5;
     float maxComp = 1.f;
+    bool lastSpecular = false;
 
     while (least_recursion < MAX_DEPTH || (sampler->next1D() < fmin(maxComp * total_eta * total_eta, 0.99)))
     {
@@ -51,9 +52,11 @@ public:
       if (x.mesh->isEmitter())
       {
         EmitterQueryRecord eRec(r.o, x.p, x.shFrame.n);
-        if (least_recursion == 0)
+        if (least_recursion == 0 || lastSpecular)
           result += x.mesh->getEmitter()->eval(eRec) * wait_albedo;
       }
+      if(!x.mesh->getBSDF()->isDiffuse()) lastSpecular = true;
+      else lastSpecular = false;
 
       //------------------------直接光 direct light---------------------------
       //均匀随机采样光源

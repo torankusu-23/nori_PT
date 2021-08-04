@@ -56,7 +56,6 @@ public:
 
       if (least_recursion <= 0)
       {
-        
         maxComp = wait_albedo.maxCoeff();
         total_eta *= bRec.eta;
       } else {
